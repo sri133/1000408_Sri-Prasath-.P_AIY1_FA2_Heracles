@@ -175,10 +175,28 @@ else:
 
         # Mark completed
         c.execute("""
-        SELECT id FROM workouts
-        WHERE user=? ORDER BY date DESC LIMIT 1
-        """,(user,))
-        last_id = c.fetchone()[0]
+SELECT id FROM workouts
+WHERE user=? ORDER BY date DESC LIMIT 1
+""",(user,))
+
+row = c.fetchone()
+
+if row:
+    last_id = row[0]
+
+    if st.button("✅ Mark Workout Completed"):
+        c.execute("UPDATE workouts SET completed=1 WHERE id=?",(last_id,))
+        c.execute("UPDATE users SET xp=xp+50 WHERE username=?",(user,))
+        conn.commit()
+        st.success("+50 XP Earned!")
+        st.rerun()
+
+    if st.button("📌 Pin Workout"):
+        c.execute("UPDATE workouts SET pinned=1 WHERE id=?",(last_id,))
+        conn.commit()
+        st.success("Workout Pinned!")
+else:
+    st.info("Generate a workout first.")
 
         if st.button("✅ Mark Workout Completed"):
             c.execute("UPDATE workouts SET completed=1 WHERE id=?",(last_id,))
@@ -277,3 +295,4 @@ else:
         conn.commit()
         st.session_state.user=None
         st.rerun()
+
