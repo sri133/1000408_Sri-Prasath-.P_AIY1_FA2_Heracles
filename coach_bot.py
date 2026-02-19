@@ -25,7 +25,7 @@ MODEL_NAME = "gemini-2.5-flash"
 # --------------------------------------------------
 # HEADER
 # --------------------------------------------------
-st.title("🏃‍♂️ CoachBot AI – Smart Fitness Assistant")
+st.title("🏃‍♂️ Heracles CoachBot AI – Smart Fitness Assistant")
 st.caption("AI-powered virtual coach for youth athletes & fitness enthusiasts")
 
 st.markdown("---")
@@ -187,3 +187,4 @@ st.caption(
     "⚠️ Educational use only. Consult a certified coach or doctor for medical concerns.\n"
     f"Session Time: {datetime.now().strftime('%d %b %Y %H:%M')}"
 )
+
