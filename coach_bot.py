@@ -3,28 +3,21 @@ import google.generativeai as genai
 import sqlite3
 import hashlib
 import pandas as pd
-import matplotlib.pyplot as plt
 import time
 from datetime import datetime
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-from reportlab.lib.styles import ParagraphStyle
-from reportlab.lib import colors
-from reportlab.lib.units import inch
+from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 
-# ---------------------------
-# PAGE CONFIG
-# ---------------------------
+# --------------------------------------------------
+# CONFIG
+# --------------------------------------------------
 st.set_page_config(page_title="HERACLES 🏛", layout="wide")
 
-# ---------------------------
-# GEMINI API
-# ---------------------------
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
-# ---------------------------
+# --------------------------------------------------
 # DATABASE
-# ---------------------------
+# --------------------------------------------------
 conn = sqlite3.connect("heracles.db", check_same_thread=False)
 c = conn.cursor()
 
@@ -33,30 +26,31 @@ CREATE TABLE IF NOT EXISTS users(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     username TEXT UNIQUE,
     password TEXT,
-    xp INTEGER DEFAULT 0,
-    goal TEXT
+    xp INTEGER DEFAULT 0
 )
 """)
 
 c.execute("""
 CREATE TABLE IF NOT EXISTS workouts(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
     user TEXT,
     goal TEXT,
     content TEXT,
     date TEXT,
-    pinned INTEGER DEFAULT 0
+    pinned INTEGER DEFAULT 0,
+    completed INTEGER DEFAULT 0
 )
 """)
 
 conn.commit()
 
-# ---------------------------
-# UTIL FUNCTIONS
-# ---------------------------
-def hash_pass(password):
-    return hashlib.sha256(password.encode()).hexdigest()
+# --------------------------------------------------
+# UTILITIES
+# --------------------------------------------------
+def hash_pass(p):
+    return hashlib.sha256(p.encode()).hexdigest()
 
-def get_badge(xp):
+def badge(xp):
     if xp >= 1000:
         return "🏆 Consistency King"
     elif xp >= 500:
@@ -65,30 +59,29 @@ def get_badge(xp):
         return "💪 Muscle Builder"
     return "👶 Beginner"
 
-def generate_plan(prompt, temperature):
+def generate_ai(prompt, temp):
     model = genai.GenerativeModel(
         model_name="gemini-2.5-flash",
-        generation_config={"temperature": temperature}
+        generation_config={"temperature": temp}
     )
-    response = model.generate_content(prompt)
-    return response.text
+    return model.generate_content(prompt).text
 
-def export_pdf(text, username):
-    file_name = f"{username}_progress.pdf"
-    doc = SimpleDocTemplate(file_name)
+def export_pdf(text, user):
+    file = f"{user}_progress.pdf"
+    doc = SimpleDocTemplate(file)
     styles = getSampleStyleSheet()
-    story = []
-    story.append(Paragraph(text, styles["Normal"]))
+    story = [Paragraph(text, styles["Normal"])]
     doc.build(story)
-    return file_name
+    return file
 
-# ---------------------------
-# AUTH
-# ---------------------------
+# --------------------------------------------------
+# AUTH SYSTEM
+# --------------------------------------------------
 if "user" not in st.session_state:
     st.session_state.user = None
 
 if not st.session_state.user:
+
     st.title("🏛 HERACLES")
 
     tab1, tab2 = st.tabs(["Login", "Register"])
@@ -99,8 +92,7 @@ if not st.session_state.user:
         if st.button("Login"):
             c.execute("SELECT * FROM users WHERE username=? AND password=?",
                       (u, hash_pass(p)))
-            data = c.fetchone()
-            if data:
+            if c.fetchone():
                 st.session_state.user = u
                 st.rerun()
             else:
@@ -114,14 +106,15 @@ if not st.session_state.user:
                 c.execute("INSERT INTO users(username,password) VALUES(?,?)",
                           (new_u, hash_pass(new_p)))
                 conn.commit()
-                st.success("Registered! Please login.")
+                st.success("Registered successfully")
             except:
-                st.error("Username already exists")
+                st.error("Username exists")
 
 else:
 
     user = st.session_state.user
 
+    # Sidebar
     st.sidebar.title(f"Welcome {user}")
 
     if st.sidebar.button("Logout"):
@@ -131,119 +124,147 @@ else:
     # XP + Badge
     c.execute("SELECT xp FROM users WHERE username=?", (user,))
     xp = c.fetchone()[0]
-    badge = get_badge(xp)
 
     st.sidebar.write(f"XP: {xp}")
-    st.sidebar.write(f"Badge: {badge}")
-    st.sidebar.progress(min(xp/1000,1.0))
+    st.sidebar.write(f"Badge: {badge(xp)}")
+    st.sidebar.progress(min(xp/1000, 1.0))
 
     # Leaderboard
     st.sidebar.subheader("🏆 Leaderboard")
-    df = pd.read_sql_query("SELECT username,xp FROM users ORDER BY xp DESC", conn)
-    st.sidebar.dataframe(df)
+    lb = pd.read_sql_query("SELECT username,xp FROM users ORDER BY xp DESC", conn)
+    st.sidebar.dataframe(lb, use_container_width=True)
 
-    # ---------------------------
-    # MAIN UI
-    # ---------------------------
-    st.title("🏋️ HERACLES – Elite Fitness Engine")
+    # --------------------------------------------------
+    # MAIN APP
+    # --------------------------------------------------
+    st.title("🏋️ HERACLES Fitness Engine")
 
     goal = st.selectbox("Goal",
-                        ["Muscle Building","Fat Burning","Stamina","Recovery"])
+        ["Muscle Building","Fat Burning","Stamina","Recovery"])
 
     level = st.selectbox("Level",
-                         ["Beginner","Intermediate","Advanced"])
+        ["Beginner","Intermediate","Advanced"])
 
     difficulty = st.slider("Difficulty",1,10,5)
 
-    temperature = st.slider("AI Creativity",0.1,0.9,0.3)
+    temp = st.slider("AI Creativity",0.1,0.9,0.3)
 
+    # Generate Workout
     if st.button("Generate Workout"):
         prompt = f"""
-        Create a {goal} workout.
+        Create a safe {goal} workout.
         Level: {level}
-        Difficulty: {difficulty}/10
-        Safe and structured.
+        Difficulty: {difficulty}/10.
+        Structured format.
         """
-        plan = generate_plan(prompt, temperature)
 
+        plan = generate_ai(prompt, temp)
         st.session_state.last_plan = plan
-        st.write(plan)
+        st.markdown(plan)
 
-        c.execute("INSERT INTO workouts VALUES(?,?,?,?,?)",
-                  (user,goal,plan,str(datetime.now()),0))
-        c.execute("UPDATE users SET xp = xp + 50 WHERE username=?",(user,))
+        c.execute("""
+        INSERT INTO workouts(user,goal,content,date,pinned,completed)
+        VALUES(?,?,?,?,?,?)
+        """,(user,goal,plan,str(datetime.now()),0,0))
         conn.commit()
 
+    # Regenerate
     if "last_plan" in st.session_state:
         if st.button("🔄 Regenerate"):
             st.rerun()
 
-        if st.button("📌 Pin Workout"):
-            c.execute("UPDATE workouts SET pinned=1 WHERE user=? ORDER BY date DESC LIMIT 1",(user,))
+        # Mark completed
+        c.execute("""
+        SELECT id FROM workouts
+        WHERE user=? ORDER BY date DESC LIMIT 1
+        """,(user,))
+        last_id = c.fetchone()[0]
+
+        if st.button("✅ Mark Workout Completed"):
+            c.execute("UPDATE workouts SET completed=1 WHERE id=?",(last_id,))
+            c.execute("UPDATE users SET xp=xp+50 WHERE username=?",(user,))
             conn.commit()
-            st.success("Pinned!")
+            st.success("+50 XP Earned!")
+            st.rerun()
 
-    # Workout History
-    st.subheader("📆 Workout History")
+        if st.button("📌 Pin Workout"):
+            c.execute("UPDATE workouts SET pinned=1 WHERE id=?",(last_id,))
+            conn.commit()
+            st.success("Workout Pinned!")
 
-    filter_goal = st.selectbox("Filter by Goal",
-                               ["All","Muscle Building","Fat Burning","Stamina","Recovery"])
+    # --------------------------------------------------
+    # PROGRESS TRACKING
+    # --------------------------------------------------
+    st.subheader("📊 Progress Tracking")
+
+    filter_goal = st.selectbox("Filter Goal",
+        ["All","Muscle Building","Fat Burning","Stamina","Recovery"])
 
     if filter_goal == "All":
-        history = pd.read_sql_query(
-            "SELECT goal,date FROM workouts WHERE user=?",
+        df = pd.read_sql_query(
+            "SELECT * FROM workouts WHERE user=? AND completed=1",
             conn, params=(user,))
     else:
-        history = pd.read_sql_query(
-            "SELECT goal,date FROM workouts WHERE user=? AND goal=?",
+        df = pd.read_sql_query(
+            "SELECT * FROM workouts WHERE user=? AND goal=? AND completed=1",
             conn, params=(user,filter_goal))
 
-    if not history.empty:
-        st.line_chart(history.groupby("date").count())
+    if not df.empty:
+        chart_data = df.groupby("date").count()["goal"]
+        st.line_chart(chart_data)
 
+    # Goal Completion %
+    target = 20
+    total_completed = len(df)
+    completion = min(total_completed/target,1.0)
+    st.progress(completion)
+    st.write(f"{round(completion*100)}% Goal Completed")
+
+    # --------------------------------------------------
     # BMI
+    # --------------------------------------------------
     st.subheader("🧮 BMI Calculator")
     w = st.number_input("Weight (kg)")
     h = st.number_input("Height (cm)")
-    if h>0:
+    if h > 0:
         bmi = w / ((h/100)**2)
         st.write(f"BMI: {round(bmi,2)}")
 
+    # --------------------------------------------------
+    # REST TIMER
+    # --------------------------------------------------
     st.subheader("⏱ Rest Timer")
 
-if st.button("Start 30s Rest"):
-    timer_placeholder = st.empty()
+    if st.button("Start 30s Rest"):
+        placeholder = st.empty()
+        for i in range(30,0,-1):
+            placeholder.markdown(f"## ⏳ {i} sec")
+            time.sleep(1)
+        placeholder.markdown("### ✅ Rest Complete!")
 
-    for i in range(30, 0, -1):
-        timer_placeholder.markdown(f"## ⏳ {i} sec")
-        time.sleep(1)
-
-    timer_placeholder.markdown("### ✅ Rest Complete!")
-
-
-    # Form Tips
-    st.subheader("🧠 AI Form Check")
-    ex = st.text_input("Exercise name")
-    if st.button("Get Form Tips"):
-        tips = generate_plan(f"Give safe form tips for {ex}",0.3)
+    # --------------------------------------------------
+    # FORM TIPS
+    # --------------------------------------------------
+    st.subheader("🧠 AI Form Tips")
+    ex = st.text_input("Exercise Name")
+    if st.button("Get Tips"):
+        tips = generate_ai(f"Give safe form tips for {ex}",0.3)
         st.write(tips)
 
-    # Goal Completion %
-    st.subheader("📊 Goal Completion")
-    total = len(history)
-    completion = min(total/20,1.0)
-    st.progress(completion)
-    st.write(f"{round(completion*100)}% Completed")
-
-    # Export PDF
+    # --------------------------------------------------
+    # EXPORT PDF
+    # --------------------------------------------------
     if st.button("💾 Export Progress PDF"):
         text = f"{user} XP: {xp}"
         file = export_pdf(text,user)
         with open(file,"rb") as f:
             st.download_button("Download PDF",f,file_name=file)
 
-    # Change Password
+    # --------------------------------------------------
+    # ACCOUNT SETTINGS
+    # --------------------------------------------------
     st.subheader("🔐 Account Settings")
+
     newpass = st.text_input("New Password",type="password")
     if st.button("Change Password"):
         c.execute("UPDATE users SET password=? WHERE username=?",
@@ -256,4 +277,3 @@ if st.button("Start 30s Rest"):
         conn.commit()
         st.session_state.user=None
         st.rerun()
-
