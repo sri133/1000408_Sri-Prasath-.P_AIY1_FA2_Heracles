@@ -209,13 +209,17 @@ else:
         bmi = w / ((h/100)**2)
         st.write(f"BMI: {round(bmi,2)}")
 
-    # Rest Timer
     st.subheader("⏱ Rest Timer")
-    if st.button("Start 30s Rest"):
-        for i in range(30,0,-1):
-            st.write(f"{i} sec")
-            time.sleep(1)
-            st.empty()
+
+if st.button("Start 30s Rest"):
+    timer_placeholder = st.empty()
+
+    for i in range(30, 0, -1):
+        timer_placeholder.markdown(f"## ⏳ {i} sec")
+        time.sleep(1)
+
+    timer_placeholder.markdown("### ✅ Rest Complete!")
+
 
     # Form Tips
     st.subheader("🧠 AI Form Check")
@@ -252,3 +256,4 @@ else:
         conn.commit()
         st.session_state.user=None
         st.rerun()
+
