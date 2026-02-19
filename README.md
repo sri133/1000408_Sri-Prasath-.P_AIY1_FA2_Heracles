@@ -7,7 +7,7 @@ CoachBot AI generates personalized workout plans, injury-aware recovery guidance
 
 🚀 Live Demo
 
-🔗 (Add your Streamlit Cloud URL here)
+🔗 https://1000408sri-prasath-paiy1fa2heracles-hogkefpvitd5jjttsm8z3h.streamlit.app/
 
 📌 Project Overview
 
