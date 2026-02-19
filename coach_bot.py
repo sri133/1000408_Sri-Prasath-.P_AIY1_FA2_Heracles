@@ -126,7 +126,7 @@ if st.button("🚀 Generate Training Plan"):
 
         try:
             model = genai.GenerativeModel(
-                model_name="gemini-1.5-pro",
+                model_name="gemini-2.5-flash",
                 generation_config={
                     "temperature": temperature
                 }
@@ -149,3 +149,4 @@ st.caption(
     "⚠️ Educational use only. Consult a certified coach or doctor for medical concerns.\n"
     f"Session Time: {datetime.now().strftime('%d %b %Y %H:%M')}"
 )
+
