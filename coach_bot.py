@@ -1,298 +1,189 @@
 import streamlit as st
 import google.generativeai as genai
-import sqlite3
-import hashlib
-import pandas as pd
-import time
 from datetime import datetime
-from reportlab.platypus import SimpleDocTemplate, Paragraph
-from reportlab.lib.styles import getSampleStyleSheet
 
 # --------------------------------------------------
-# CONFIG
+# PAGE CONFIG
 # --------------------------------------------------
-st.set_page_config(page_title="HERACLES 🏛", layout="wide")
-
-genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-
-# --------------------------------------------------
-# DATABASE
-# --------------------------------------------------
-conn = sqlite3.connect("heracles.db", check_same_thread=False)
-c = conn.cursor()
-
-c.execute("""
-CREATE TABLE IF NOT EXISTS users(
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE,
-    password TEXT,
-    xp INTEGER DEFAULT 0
+st.set_page_config(
+    page_title="Heracles Coach AI 🏆",
+    page_icon="💪",
+    layout="centered"
 )
-""")
 
-c.execute("""
-CREATE TABLE IF NOT EXISTS workouts(
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user TEXT,
-    goal TEXT,
-    content TEXT,
-    date TEXT,
-    pinned INTEGER DEFAULT 0,
-    completed INTEGER DEFAULT 0
+# --------------------------------------------------
+# LOAD GEMINI API FROM SECRETS
+# --------------------------------------------------
+try:
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+except KeyError:
+    st.error("⚠️ Gemini API key not found in Streamlit secrets.")
+    st.stop()
+
+MODEL_NAME = "gemini-2.5-flash"
+
+# --------------------------------------------------
+# HEADER
+# --------------------------------------------------
+st.title("🏃‍♂️ CoachBot AI – Smart Fitness Assistant")
+st.caption("AI-powered virtual coach for youth athletes & fitness enthusiasts")
+
+st.markdown("---")
+
+# --------------------------------------------------
+# USER INPUT SECTION
+# --------------------------------------------------
+st.subheader("👤 Athlete Profile")
+
+sport = st.selectbox(
+    "Sport",
+    [
+        "Football",
+        "Cricket",
+        "Basketball",
+        "Athletics",
+        "Badminton",
+        "Hockey",
+        "Calisthenics",
+        "General Fitness"
+    ]
 )
-""")
 
-conn.commit()
+position = st.text_input(
+    "Player Position / Focus Area (e.g., Striker, Bowler, Upper Body)"
+)
+
+injury = st.text_area(
+    "Injury History / Risk Zone",
+    placeholder="e.g., Knee strain, ankle sprain, none"
+)
+
+goal = st.selectbox(
+    "Primary Goal",
+    [
+        "Build Stamina",
+        "Increase Strength",
+        "Post-Injury Recovery",
+        "Speed & Agility",
+        "Tactical Improvement",
+        "Bodybuilding (Muscle Gain)",
+        "Fat Burning (Weight Loss)"
+    ]
+)
+
+diet = st.selectbox(
+    "Diet Preference",
+    ["Vegetarian", "Non-Vegetarian", "Eggetarian", "Vegan"]
+)
+
+intensity = st.selectbox(
+    "Training Intensity",
+    ["Low", "Moderate", "High"]
+)
 
 # --------------------------------------------------
-# UTILITIES
+# MODEL TUNING
 # --------------------------------------------------
-def hash_pass(p):
-    return hashlib.sha256(p.encode()).hexdigest()
+st.markdown("---")
+st.subheader("🧪 AI Tuning")
 
-def badge(xp):
-    if xp >= 1000:
-        return "🏆 Consistency King"
-    elif xp >= 500:
-        return "🔥 Fat Burner"
-    elif xp >= 250:
-        return "💪 Muscle Builder"
-    return "👶 Beginner"
-
-def generate_ai(prompt, temp):
-    model = genai.GenerativeModel(
-        model_name="gemini-2.5-flash",
-        generation_config={"temperature": temp}
-    )
-    return model.generate_content(prompt).text
-
-def export_pdf(text, user):
-    file = f"{user}_progress.pdf"
-    doc = SimpleDocTemplate(file)
-    styles = getSampleStyleSheet()
-    story = [Paragraph(text, styles["Normal"])]
-    doc.build(story)
-    return file
+temperature = st.slider(
+    "Creativity Level",
+    min_value=0.1,
+    max_value=0.9,
+    value=0.3
+)
 
 # --------------------------------------------------
-# AUTH SYSTEM
+# PROMPT BUILDER
 # --------------------------------------------------
-if "user" not in st.session_state:
-    st.session_state.user = None
+def build_prompt():
 
-if not st.session_state.user:
+    special_instructions = ""
 
-    st.title("🏛 HERACLES")
-
-    tab1, tab2 = st.tabs(["Login", "Register"])
-
-    with tab1:
-        u = st.text_input("Username")
-        p = st.text_input("Password", type="password")
-        if st.button("Login"):
-            c.execute("SELECT * FROM users WHERE username=? AND password=?",
-                      (u, hash_pass(p)))
-            if c.fetchone():
-                st.session_state.user = u
-                st.rerun()
-            else:
-                st.error("Invalid credentials")
-
-    with tab2:
-        new_u = st.text_input("New Username")
-        new_p = st.text_input("New Password", type="password")
-        if st.button("Register"):
-            try:
-                c.execute("INSERT INTO users(username,password) VALUES(?,?)",
-                          (new_u, hash_pass(new_p)))
-                conn.commit()
-                st.success("Registered successfully")
-            except:
-                st.error("Username exists")
-
-else:
-
-    user = st.session_state.user
-
-    # Sidebar
-    st.sidebar.title(f"Welcome {user}")
-
-    if st.sidebar.button("Logout"):
-        st.session_state.user = None
-        st.rerun()
-
-    # XP + Badge
-    c.execute("SELECT xp FROM users WHERE username=?", (user,))
-    xp = c.fetchone()[0]
-
-    st.sidebar.write(f"XP: {xp}")
-    st.sidebar.write(f"Badge: {badge(xp)}")
-    st.sidebar.progress(min(xp/1000, 1.0))
-
-    # Leaderboard
-    st.sidebar.subheader("🏆 Leaderboard")
-    lb = pd.read_sql_query("SELECT username,xp FROM users ORDER BY xp DESC", conn)
-    st.sidebar.dataframe(lb, use_container_width=True)
-
-    # --------------------------------------------------
-    # MAIN APP
-    # --------------------------------------------------
-    st.title("🏋️ HERACLES Fitness Engine")
-
-    goal = st.selectbox("Goal",
-        ["Muscle Building","Fat Burning","Stamina","Recovery"])
-
-    level = st.selectbox("Level",
-        ["Beginner","Intermediate","Advanced"])
-
-    difficulty = st.slider("Difficulty",1,10,5)
-
-    temp = st.slider("AI Creativity",0.1,0.9,0.3)
-
-    # Generate Workout
-    if st.button("Generate Workout"):
-        prompt = f"""
-        Create a safe {goal} workout.
-        Level: {level}
-        Difficulty: {difficulty}/10.
-        Structured format.
+    if goal == "Bodybuilding (Muscle Gain)":
+        special_instructions = """
+        Focus on hypertrophy-based training.
+        Include sets, reps, rest time.
+        Mention progressive overload.
+        Add protein-rich diet advice.
+        Keep training sustainable.
         """
 
-        plan = generate_ai(prompt, temp)
-        st.session_state.last_plan = plan
-        st.markdown(plan)
+    elif goal == "Fat Burning (Weight Loss)":
+        special_instructions = """
+        Focus on safe fat loss.
+        Combine strength training and cardio.
+        Avoid crash diets.
+        Mention calorie awareness (no extreme restriction).
+        Promote consistency and recovery.
+        """
 
-        c.execute("""
-        INSERT INTO workouts(user,goal,content,date,pinned,completed)
-        VALUES(?,?,?,?,?,?)
-        """,(user,goal,plan,str(datetime.now()),0,0))
-        conn.commit()
+    return f"""
+You are CoachBot AI, a certified youth sports coach and fitness scientist.
 
-    # Regenerate
-    if "last_plan" in st.session_state:
-        if st.button("🔄 Regenerate"):
-            st.rerun()
+Athlete Details:
+- Sport: {sport}
+- Position / Focus: {position}
+- Injury History: {injury}
+- Goal: {goal}
+- Diet: {diet}
+- Training Intensity: {intensity}
 
-        # Mark completed
-        c.execute("""
-SELECT id FROM workouts
-WHERE user=? ORDER BY date DESC LIMIT 1
-""",(user,))
+Special Instructions:
+{special_instructions}
 
-row = c.fetchone()
+Rules:
+- Be safety-first and injury-aware.
+- Avoid medical diagnosis.
+- Avoid unsafe or extreme exercises.
+- Use clear, structured sections.
+- Keep language simple and motivating.
 
-if row:
-    last_id = row[0]
+Generate:
 
-    if st.button("✅ Mark Workout Completed"):
-        c.execute("UPDATE workouts SET completed=1 WHERE id=?",(last_id,))
-        c.execute("UPDATE users SET xp=xp+50 WHERE username=?",(user,))
-        conn.commit()
-        st.success("+50 XP Earned!")
-        st.rerun()
+1. Weekly Workout Structure
+2. Exercise Plan (sets, reps, rest)
+3. Injury-Aware Recovery Guidance
+4. Nutrition & Hydration Plan
+5. Warm-up & Cooldown Routine
+"""
 
-    if st.button("📌 Pin Workout"):
-        c.execute("UPDATE workouts SET pinned=1 WHERE id=?",(last_id,))
-        conn.commit()
-        st.success("Workout Pinned!")
-else:
-    st.info("Generate a workout first.")
+# --------------------------------------------------
+# GENERATE BUTTON
+# --------------------------------------------------
+st.markdown("---")
 
-        if st.button("✅ Mark Workout Completed"):
-            c.execute("UPDATE workouts SET completed=1 WHERE id=?",(last_id,))
-            c.execute("UPDATE users SET xp=xp+50 WHERE username=?",(user,))
-            conn.commit()
-            st.success("+50 XP Earned!")
-            st.rerun()
+if st.button("🚀 Generate Training Plan"):
 
-        if st.button("📌 Pin Workout"):
-            c.execute("UPDATE workouts SET pinned=1 WHERE id=?",(last_id,))
-            conn.commit()
-            st.success("Workout Pinned!")
+    if not position:
+        st.warning("Please enter the player position or focus area.")
+        st.stop()
 
-    # --------------------------------------------------
-    # PROGRESS TRACKING
-    # --------------------------------------------------
-    st.subheader("📊 Progress Tracking")
+    with st.spinner("CoachBot AI is generating your personalized plan..."):
 
-    filter_goal = st.selectbox("Filter Goal",
-        ["All","Muscle Building","Fat Burning","Stamina","Recovery"])
+        try:
+            model = genai.GenerativeModel(
+                model_name=MODEL_NAME,
+                generation_config={
+                    "temperature": temperature
+                }
+            )
 
-    if filter_goal == "All":
-        df = pd.read_sql_query(
-            "SELECT * FROM workouts WHERE user=? AND completed=1",
-            conn, params=(user,))
-    else:
-        df = pd.read_sql_query(
-            "SELECT * FROM workouts WHERE user=? AND goal=? AND completed=1",
-            conn, params=(user,filter_goal))
+            response = model.generate_content(build_prompt())
 
-    if not df.empty:
-        chart_data = df.groupby("date").count()["goal"]
-        st.line_chart(chart_data)
+            st.success("✅ Personalized Coaching Plan Ready!")
+            st.markdown(response.text)
 
-    # Goal Completion %
-    target = 20
-    total_completed = len(df)
-    completion = min(total_completed/target,1.0)
-    st.progress(completion)
-    st.write(f"{round(completion*100)}% Goal Completed")
+        except Exception as e:
+            st.error("⚠️ Something went wrong while generating the plan.")
+            st.exception(e)
 
-    # --------------------------------------------------
-    # BMI
-    # --------------------------------------------------
-    st.subheader("🧮 BMI Calculator")
-    w = st.number_input("Weight (kg)")
-    h = st.number_input("Height (cm)")
-    if h > 0:
-        bmi = w / ((h/100)**2)
-        st.write(f"BMI: {round(bmi,2)}")
-
-    # --------------------------------------------------
-    # REST TIMER
-    # --------------------------------------------------
-    st.subheader("⏱ Rest Timer")
-
-    if st.button("Start 30s Rest"):
-        placeholder = st.empty()
-        for i in range(30,0,-1):
-            placeholder.markdown(f"## ⏳ {i} sec")
-            time.sleep(1)
-        placeholder.markdown("### ✅ Rest Complete!")
-
-    # --------------------------------------------------
-    # FORM TIPS
-    # --------------------------------------------------
-    st.subheader("🧠 AI Form Tips")
-    ex = st.text_input("Exercise Name")
-    if st.button("Get Tips"):
-        tips = generate_ai(f"Give safe form tips for {ex}",0.3)
-        st.write(tips)
-
-    # --------------------------------------------------
-    # EXPORT PDF
-    # --------------------------------------------------
-    if st.button("💾 Export Progress PDF"):
-        text = f"{user} XP: {xp}"
-        file = export_pdf(text,user)
-        with open(file,"rb") as f:
-            st.download_button("Download PDF",f,file_name=file)
-
-    # --------------------------------------------------
-    # ACCOUNT SETTINGS
-    # --------------------------------------------------
-    st.subheader("🔐 Account Settings")
-
-    newpass = st.text_input("New Password",type="password")
-    if st.button("Change Password"):
-        c.execute("UPDATE users SET password=? WHERE username=?",
-                  (hash_pass(newpass),user))
-        conn.commit()
-        st.success("Password Updated")
-
-    if st.button("🗑 Delete Account"):
-        c.execute("DELETE FROM users WHERE username=?",(user,))
-        conn.commit()
-        st.session_state.user=None
-        st.rerun()
-
+# --------------------------------------------------
+# FOOTER
+# --------------------------------------------------
+st.markdown("---")
+st.caption(
+    "⚠️ Educational use only. Consult a certified coach or doctor for medical concerns.\n"
+    f"Session Time: {datetime.now().strftime('%d %b %Y %H:%M')}"
+)
